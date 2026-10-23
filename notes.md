@@ -1,9 +1,10 @@
 # Data quality findings
 
 ## 1. Age
-Only one customer is younger than 21.
-The age of that customer is 0, which is impossible and indicates a data entry error.
-Suggested solution: drop this row.
+Only one customer is younger than 21, with an age of 0.
+Age 0 is not a valid borrower age. The cause is unknown (possibly an entry error, or a placeholder
+for "not provided").
+Suggested solution: as it is a single record, drop this row.
 
 ## 2. Missing income
 29,731 customers have missing income, which is 19.82% of the customers.
@@ -47,7 +48,7 @@ times a customer was late, such as unfilled or unknown data.
 Customers with late_90 >  95: default rate 54.65%
 Customers with late_90 <= 95: default rate 6.60%
 
-Since the difference is large, the suggested solution is to set the 96/98 values to NA in all
+Since the difference is large, the suggested solution is to set the 96/98 values to NULL in all
 three late-payment columns and add a late_code_flag column (1 = coded customer), so the model
 keeps the signal without treating the codes as counts and learns that this group is high-risk.
 
@@ -108,3 +109,59 @@ a placeholder rather than the real income.
 Suggested solution: add a zero_income flag.
 Very high incomes (up to 3,008,750) are plausible for a low-risk group but extreme in value.
 Suggested solution: cap income at the 99th percentile before modelling.
+
+Values used: the median and 99th percentile of monthly_income are calculated from the 120,269
+customers with a recorded income (missing values are skipped). The median is 5,400 and the
+99th percentile is 25,000. In the clean view, missing incomes are filled with 5,400 and incomes
+are capped at 25,000, so the extreme values (up to 3,008,750) don't distort the model while the
+customers stay in the data.
+
+## 10. Debt ratios
+Ranking customers by debt_ratio within each age band showed that the highest debt ratios belong
+to customers with zero or very small incomes. Since debt_ratio is monthly debt payments divided by
+monthly income, a zero or very small income makes the ratio meaningless.
+
+To find where debt_ratio stops being realistic, I calculated the median debt_ratio for groups of
+customers with different incomes:
+
+Income missing: 29,731 customers, median debt ratio 1,159
+Income 0:        1,634 customers, median debt ratio 930
+Income 1–9:        617 customers, median debt ratio 561
+Income 10–99:       26 customers, median debt ratio 23.48
+Income 100–499:    416 customers, median debt ratio 1.36
+Income 500–999:  1,735 customers, median debt ratio 0.46
+
+- 10–99: even though these are only 26 customers, a typical debt ratio of 23.48 is impossible.
+  These incomes were possibly used as placeholders (hypothesis).
+- 100–499: 1.36 is possible for some individuals, but a person cannot pay 36% more than their
+  income in debt for long, so it cannot be typical of a group of 416 customers.
+- 500–999: the median returns to a normal value (below 1).
+- Missing income: there is no income to divide the debt by, yet these customers still have a
+  debt_ratio, so the values probably show the raw debt amount rather than a ratio (hypothesis).
+
+Suggested solution: debt_ratio is reliable from an income of 500 upwards. Set debt_ratio to NULL
+when income is missing or below 500 (which includes zero). The missing_income and zero_income
+flags already mark most of these customers.
+
+
+# Clean modelling view
+
+## 11. Clean modelling view (credit_clean)
+The view applies findings 1–10 in one query:
+- customers whose monthly_income is not recorded are flagged with missing_income (finding 2)
+- customers whose monthly_income is 0 are flagged with zero_income (finding 9)
+- if monthly_income is not recorded it is set to 5,400 (the median), and monthly_income is capped at 25,000
+  (the 99th percentile) (findings 2 and 9)
+- if monthly_income is not recorded or is less than 500, debt_ratio is set to NULL (finding 10)
+- customers with a revolving_utilization higher than 1.05 are flagged with high_utilization (finding 3)
+- customers with a value above 95 (codes 96/98) in late_90 are flagged with late_code_flag (finding 4)
+- values above 95 in late_30_59, late_60_89 and late_90 are set to NULL (finding 4)
+- if dependents is not recorded, the value is set to 0 (finding 5)
+- the age-0 record is excluded (finding 1)
+
+Checks that have been done:
+- number of customers is 149,999 (150,000 minus the age-0 record)
+- maximum late_90 is 17 (codes removed)
+- maximum monthly_income is 25,000 (cap applied)
+- NULL debt_ratio values: 32,424 = 29,731 missing + 1,634 zero + 617 (1–9) + 26 (10–99) + 416 (100–499),
+  matching finding 10 exactly
