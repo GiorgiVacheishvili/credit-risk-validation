@@ -5,7 +5,8 @@ records (Kaggle "Give Me Some Credit"), with data work in PostgreSQL and modelli
 
 ## Progress
 - [x] Data quality profile in SQL: five data issues found, sized and checked against default rates
-- [x] Default rates by segment
+- [x] Default rates by segment (age, late payments, income deciles)
+- [x] Clean modelling view in SQL: all fixes applied in one view, verified with reconciliation checks
 - [ ] Logistic-regression scorecard and LightGBM challenger (AUC, Gini, KS)
 - [ ] Stability (PSI) and SHAP explanations
 - [ ] Validation report
