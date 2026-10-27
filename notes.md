@@ -165,3 +165,41 @@ Checks that have been done:
 - maximum monthly_income is 25,000 (cap applied)
 - NULL debt_ratio values: 32,424 = 29,731 missing + 1,634 zero + 617 (1–9) + 26 (10–99) + 416 (100–499),
   matching finding 10 exactly
+
+# Modelling
+
+## 12. Logistic regression: which information predicts default
+Reading the clean view into Python gives 149,999 rows (customers) and 16 columns.
+Of these customers, 32,424 have debt_ratio set to NULL, and 269 have late_30_59, late_60_89 and
+late_90 set to NULL.
+
+Preparation:
+- I filled the missing values in late_30_59, late_60_89 and late_90 with 0, since these customers
+  are already flagged with late_code_flag.
+- I added a debt_ratio_missing flag and filled the missing debt_ratio values with the median
+  debt_ratio, so the model doesn't skip these customers while learning.
+- I split the data into training and test parts with a test size of 0.3, stratified by default so
+  both parts keep the 6.7% default rate, with random_state set to 42.
+- StandardScaler standardises each feature to mean 0 and standard deviation 1. It is fitted on the
+  training data only, before the logistic regression.
+
+First model: AUC 0.824, Gini 0.648, KS 0.505.
+
+Looking at the coefficients and odds ratios, late_90 is the strongest risk factor, with late_30_59
+and missing_income second and third.
+Customers with missing income defaulted less in finding 2, so the positive sign of missing_income
+contradicts that finding. The reason is that it overlaps almost completely with debt_ratio_missing
+(-0.39); together their effect is about -0.06, slightly lower risk. Individual coefficients of
+overlapping features can't be read on their own (multicollinearity). zero_income has almost no
+effect for the same reason.
+debt_ratio_missing, age and monthly_income are the features that lower risk.
+
+revolving_utilization had almost no effect on the prediction, even though realistically it should
+be a strong predictor, and it ranked several places below the high_utilization flag I introduced.
+The likely reason is its extreme values and very large range: because of them, values like 0.9 or 1
+looked small to the model.
+After this discovery, I capped revolving_utilization at 1, so the model can see values like 0.9 or 1
+as high.
+
+Model after capping: AUC 0.854, Gini 0.707, KS 0.549, a clear improvement.
+revolving_utilization is now the strongest risk factor in the model.
