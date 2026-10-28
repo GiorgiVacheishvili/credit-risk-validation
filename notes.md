@@ -203,3 +203,45 @@ as high.
 
 Model after capping: AUC 0.854, Gini 0.707, KS 0.549, a clear improvement.
 revolving_utilization is now the strongest risk factor in the model.
+
+## 13. LightGBM challenger compared with logistic regression
+The training/test split is the same as for the scorecard: test size 0.3, stratified by default,
+random_state 42. This time I used a LightGBM classifier with the following parameters:
+- n_estimators = 500
+- learning_rate = 0.05
+- num_leaves = 31
+- random_state = 42
+- verbose = -1
+
+This model gives AUC 0.862, Gini 0.725 and KS 0.578. Gini, the measure I use to compare the models,
+is higher than the logistic regression's 0.707. The slight increase is expected, because logistic
+regression can't capture how a feature affects default when the relationship isn't a straight line.
+For example, LightGBM was possibly able to capture finding 8, where the default rate first increases
+from the first to the second income decile and then decreases (not verified). This is possible
+because trees can capture non-linear patterns.
+
+However, comparing the AUC on the training data (0.922) with the test data (0.862) shows a difference
+of 0.06. This is too big: the high training AUC implies that the model overfit and learned the
+training data too well. For comparison, the scorecard's gap is -0.003, so it doesn't overfit.
+Therefore I tried two modified versions of the model.
+
+Version 2 (learning_rate kept at 0.05):
+- decreased n_estimators to 300
+- decreased num_leaves to 15
+- added min_child_samples = 200
+This version decreased the AUC difference to 0.016 (train 0.882, test 0.866), with Gini 0.731,
+still higher than the logistic regression.
+
+Version 3:
+- decreased learning_rate to 0.01
+This version also decreased the AUC difference, to 0.017 (train 0.883, test 0.866), with Gini 0.731
+again.
+
+Conclusion:
+LightGBM is better than logistic regression by a slight margin (+0.024 Gini), but because logistic
+regression has better interpretability, I would choose logistic regression as the main model and
+use LightGBM as a benchmark.
+Between versions 2 and 3, neither of which overfits, I would choose version 2, as it is the more
+constrained model: fewer trees, fewer leaves and more customers per leaf.
+Also, since versions 2 and 3 reach exactly the same test AUC of 0.866 by two different routes, it is
+reasonable to conclude that this is close to the ceiling for this data with these features.
