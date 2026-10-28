@@ -8,7 +8,7 @@ records (Kaggle "Give Me Some Credit"), with data work in PostgreSQL and modelli
 - [x] Default rates by segment (age bands, late payments, income deciles)
 - [x] Clean modelling view in SQL (all fixes applied in one view, verified with reconciliation checks)
 - [x] Logistic-regression scorecard in Python (AUC, Gini, KS)
-- [ ] LightGBM challenger model and side-by-side comparison
+- [x] LightGBM challenger model and side-by-side comparison
 - [ ] Stability check (PSI against new applicants)
 - [ ] SHAP explanations and agreement with the scorecard
 - [ ] Validation report
