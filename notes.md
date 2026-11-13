@@ -245,3 +245,35 @@ Between versions 2 and 3, neither of which overfits, I would choose version 2, a
 constrained model: fewer trees, fewer leaves and more customers per leaf.
 Also, since versions 2 and 3 reach exactly the same test AUC of 0.866 by two different routes, it is
 reasonable to conclude that this is close to the ceiling for this data with these features.
+
+## 14. Stability check (PSI)
+I compared the new applicants (cs-test.csv) with the training data. The simple checks already
+showed that the two groups are very similar:
+- missing income: 19.82% in the training data, 19.81% among new applicants;
+- 96/98 codes in late_90: 269 rows (0.18%) in the training data, 214 of 101,503 (0.21%) among
+  new applicants.
+These similar values suggest (hypothesis) that both datasets come from the same source and were
+split randomly, which is why their patterns are the same.
+
+I applied the same cleaning in SQL to the new applicants as to the training data, keeping the
+training values (median income 5,400, cap 25,000). There were no applicants with age 0, so no rows
+were removed. I also applied the same Python preparation to both tables, using the debt_ratio
+median from the training data.
+
+I then retrained the logistic regression exactly as before (test size 0.3, stratified by default,
+random_state 42) and used it to predict the probability of default (PD) for the training customers
+and the new applicants. The average predicted PD was almost identical: 6.685% for the training
+customers and 6.681% for the new applicants, further support for the hypothesis above.
+
+PSI (population stability index) measures how much a population has shifted. Below 0.10 indicates
+stability, 0.10–0.25 a moderate shift, and above 0.25 a significant shift. To calculate it, I sorted
+the training customers by their score into 10 equal groups and checked whether the new applicants
+were also spread with about 10% in each group.
+- PSI of the model score: 0.0001, far below 0.10, so the score distribution is stable.
+- PSI of the input features: revolving_utilization 0.0001, monthly_income 0.0003, age 0.0001,
+  debt_ratio 0.0001, late_90 0.0, so every main feature is stable too.
+
+Conclusion and limitation: because the two samples most likely come from the same period, this
+confirms that the processing is consistent and the populations match, but it cannot test
+stability over time. In practice, PSI would compare the training period with later applicants,
+which would give a true picture of the model's stability.
