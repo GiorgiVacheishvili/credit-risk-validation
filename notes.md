@@ -277,3 +277,49 @@ Conclusion and limitation: because the two samples most likely come from the sam
 confirms that the processing is consistent and the populations match, but it cannot test
 stability over time. In practice, PSI would compare the training period with later applicants,
 which would give a true picture of the model's stability.
+
+## 15. SHAP explanations
+I used SHAP to see which features drive the recommended LightGBM model (version 2) globally.
+The top three features by average SHAP value are revolving_utilization (0.71), late_30_59 (0.30)
+and age (0.23), followed by late_90 (0.21) and debt_ratio (0.18). The flags (missing_income,
+late_code_flag and the others) contribute very little: the six smallest features together
+reach only 0.03.
+
+Compared with finding 12, where the scorecard's strongest risk factors were
+revolving_utilization, late_90 and late_30_59, the two models largely agree. The one
+apparent difference is age, but it comes from how the features were compared, not from the
+models. SHAP ranks features by the size of their effect in either direction, while finding 12
+listed only the risk-raising ones. In the scorecard, age was also one of the strongest
+factors, as a protective one (odds ratio 0.69). Including that, both models rely on the same
+core features: revolving_utilization, late_30_59, late_90 and age.
+The agreement supports that both models rely on sensible features, though both share any
+limitations of the data they were trained on.
+
+The beeswarm plot shows the direction of each effect (SHAP values are on the log-odds scale):
+- revolving_utilization: higher values push the risk up much more, with SHAP values reaching
+  about +2.
+- age: older customers have lower risk and younger customers higher risk, with SHAP values
+  between about -0.85 and +1.
+- late_30_59 and late_90: higher values push the risk up. For some customers late_90 has an even
+  bigger effect than revolving_utilization, reaching about +3.3.
+
+I also checked the SHAP explanation for a single customer: the one with the highest
+probability of default in the sample (0.844). The model starts from the average prediction
+(-3.559 in log-odds) and ends at 1.691, which corresponds to the 0.844 PD. The biggest driver
+for this customer was late_90 with a value of 4 (+2.03), the second was revolving_utilization
+of 1 (+1.26) and the third was late_60_89 with a value of 2 (+1.20). open_credit_lines of 5
+actually pushed the score down by a small amount (-0.12).
+
+Additionally, plotting the SHAP values against monthly_income shows that the SHAP values vary
+most for customers who reported an income of 0. As we move higher along monthly_income, the
+SHAP values first rise, peaking at around 2,000-3,500, and then go lower as the income
+increases, becoming mostly negative above about 10,000. This matches the pattern in finding 8:
+the model treats the lowest incomes, including the zero incomes, as less risky than incomes of
+2,000-3,500, just as the first decile had a lower default rate than the second. The model has
+learned this bend from the data, which logistic regression cannot capture. However, SHAP only
+shows what the model learned, not why, so the reason customers report zero income (for example
+informal income) remains untested.
+The plot also shows traces of my cleaning choices: the tall bar in the histogram at 5,400
+represents the missing incomes I replaced with the median, and the column at 25,000 shows
+the incomes I capped at that value. The missing_income flag helps the model tell the
+customers with a filled-in 5,400 apart from those who actually reported that income.
