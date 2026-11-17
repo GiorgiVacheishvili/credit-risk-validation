@@ -8,10 +8,10 @@ Suggested solution: as it is a single record, drop this row.
 
 ## 2. Missing income
 29,731 customers have missing income, which is 19.82% of the customers.
-Of these, 1,669 defaulted, so the default rate for customers with missing income is 5.6%.
+Of these, 1,669 defaulted, so the default rate for customers with missing income is 5.61%.
 The overall default rate is 6.68% (10,026 customers).
 
-Customers with missing income: default rate 5.6%  (out of customers with missing income)
+Customers with missing income: default rate 5.61% (out of customers with missing income)
 Customers with income:         default rate 6.95% (out of customers with income)
 
 Customers with missing income default less often, so missingness carries information.
@@ -30,7 +30,8 @@ Customers with revolving utilization <= 1.05: default rate 6.25%
 
 Since customers with revolving utilization above 1.05 show a much higher default rate,
 dropping them is risky.
-Suggested solution: keep and flag them.
+Suggested solution: keep and flag them (revolving_utilization was later also capped at 1, see
+finding 12).
 
 ## 4. Late-payment codes (96 and 98)
 In the columns for being late 30–59, 60–89 and 90+ days, 5 customers are recorded as being
@@ -140,8 +141,8 @@ Income 500–999:  1,735 customers, median debt ratio 0.46
   debt_ratio, so the values probably show the raw debt amount rather than a ratio (hypothesis).
 
 Suggested solution: debt_ratio is reliable from an income of 500 upwards. Set debt_ratio to NULL
-when income is missing or below 500 (which includes zero). The missing_income and zero_income
-flags already mark most of these customers.
+when income is missing or below 500 (which includes zero), and add a debt_ratio_missing flag
+(added in Python, see finding 12).
 
 
 # Clean modelling view
@@ -150,11 +151,13 @@ flags already mark most of these customers.
 The view applies findings 1–10 in one query:
 - customers whose monthly_income is not recorded are flagged with missing_income (finding 2)
 - customers whose monthly_income is 0 are flagged with zero_income (finding 9)
-- if monthly_income is not recorded it is set to 5,400 (the median), and monthly_income is capped at 25,000
-  (the 99th percentile) (findings 2 and 9)
+- if monthly_income is not recorded it is set to 5,400 (the median), and monthly_income is capped
+  at 25,000 (the 99th percentile) (findings 2 and 9)
 - if monthly_income is not recorded or is less than 500, debt_ratio is set to NULL (finding 10)
-- customers with a revolving_utilization higher than 1.05 are flagged with high_utilization (finding 3)
-- customers with a value above 95 (codes 96/98) in late_90 are flagged with late_code_flag (finding 4)
+- customers with a revolving_utilization higher than 1.05 are flagged with high_utilization
+  (finding 3)
+- customers with a value above 95 (codes 96/98) in late_90 are flagged with late_code_flag
+  (finding 4)
 - values above 95 in late_30_59, late_60_89 and late_90 are set to NULL (finding 4)
 - if dependents is not recorded, the value is set to 0 (finding 5)
 - the age-0 record is excluded (finding 1)
@@ -163,8 +166,8 @@ Checks that have been done:
 - number of customers is 149,999 (150,000 minus the age-0 record)
 - maximum late_90 is 17 (codes removed)
 - maximum monthly_income is 25,000 (cap applied)
-- NULL debt_ratio values: 32,424 = 29,731 missing + 1,634 zero + 617 (1–9) + 26 (10–99) + 416 (100–499),
-  matching finding 10 exactly
+- NULL debt_ratio values: 32,424 = 29,731 missing + 1,634 zero + 617 (1–9) + 26 (10–99)
+  + 416 (100–499), matching finding 10 exactly
 
 # Modelling
 
@@ -206,7 +209,9 @@ revolving_utilization is now the strongest risk factor in the model.
 
 ## 13. LightGBM challenger compared with logistic regression
 The training/test split is the same as for the scorecard: test size 0.3, stratified by default,
-random_state 42. This time I used a LightGBM classifier with the following parameters:
+random_state 42. This time I used a LightGBM classifier.
+
+Version 1 parameters:
 - n_estimators = 500
 - learning_rate = 0.05
 - num_leaves = 31
@@ -216,31 +221,38 @@ random_state 42. This time I used a LightGBM classifier with the following param
 This model gives AUC 0.862, Gini 0.725 and KS 0.578. Gini, the measure I use to compare the models,
 is higher than the logistic regression's 0.707. The slight increase is expected, because logistic
 regression can't capture how a feature affects default when the relationship isn't a straight line.
-For example, LightGBM was possibly able to capture finding 8, where the default rate first increases
-from the first to the second income decile and then decreases (not verified). This is possible
-because trees can capture non-linear patterns.
+For example, LightGBM may be able to capture finding 8, where the default rate first increases
+from the first to the second income decile and then decreases (checked with SHAP in finding 15).
+This is possible because trees can capture non-linear patterns.
 
 However, comparing the AUC on the training data (0.922) with the test data (0.862) shows a difference
 of 0.06. This is too big: the high training AUC implies that the model overfit and learned the
 training data too well. For comparison, the scorecard's gap is -0.003, so it doesn't overfit.
-Therefore I tried two modified versions of the model.
+Therefore I tried two modified versions of the model, each fixing the overfitting in a different way.
 
-Version 2 (learning_rate kept at 0.05):
-- decreased n_estimators to 300
-- decreased num_leaves to 15
-- added min_child_samples = 200
+Version 2 (simpler trees, same learning rate as version 1):
+- n_estimators = 300 (decreased from 500)
+- learning_rate = 0.05 (unchanged)
+- num_leaves = 15 (decreased from 31)
+- min_child_samples = 200 (added)
+- random_state = 42
+- verbose = -1
 This version decreased the AUC difference to 0.016 (train 0.882, test 0.866), with Gini 0.731,
 still higher than the logistic regression.
 
-Version 3:
-- decreased learning_rate to 0.01
+Version 3 (version 1 with only the learning rate lowered):
+- n_estimators = 500 (unchanged)
+- learning_rate = 0.01 (decreased from 0.05)
+- num_leaves = 31 (unchanged)
+- random_state = 42
+- verbose = -1
 This version also decreased the AUC difference, to 0.017 (train 0.883, test 0.866), with Gini 0.731
 again.
 
 Conclusion:
 LightGBM is better than logistic regression by a slight margin (+0.024 Gini), but because logistic
 regression has better interpretability, I would choose logistic regression as the main model and
-use LightGBM as a benchmark.
+use LightGBM version 2 as the challenger.
 Between versions 2 and 3, neither of which overfits, I would choose version 2, as it is the more
 constrained model: fewer trees, fewer leaves and more customers per leaf.
 Also, since versions 2 and 3 reach exactly the same test AUC of 0.866 by two different routes, it is
@@ -279,7 +291,7 @@ stability over time. In practice, PSI would compare the training period with lat
 which would give a true picture of the model's stability.
 
 ## 15. SHAP explanations
-I used SHAP to see which features drive the recommended LightGBM model (version 2) globally.
+I used SHAP to see which features drive the chosen LightGBM model (version 2) globally.
 The top three features by average SHAP value are revolving_utilization (0.71), late_30_59 (0.30)
 and age (0.23), followed by late_90 (0.21) and debt_ratio (0.18). The flags (missing_income,
 late_code_flag and the others) contribute very little: the six smallest features together
